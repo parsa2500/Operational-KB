@@ -1,0 +1,1 @@
+{"id":"offline-payment-001","language":"fa","question":"مشتری پرداخت آفلاین انجام داده؛ از کجا فیش را ببینم و تایید کنم؟","expected":{"workflow":"offline-payment-approval","mustCiteKinds":["ui","api","permission","state"]},"status":"needs-real-project-evidence"}

@@ -1,0 +1,1 @@
+import {config} from './config.js';import {ingest} from './ingest.js';import {db} from './db.js';if(process.argv[2]!=='ingest')throw new Error('Usage: npm run ingest');console.log(await ingest(config.TARGET_REPO_PATH));await db.end();

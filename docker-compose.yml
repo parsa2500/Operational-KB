@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: operational_kb
+      POSTGRES_PASSWORD: operational_kb
+      POSTGRES_DB: operational_kb
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operational_kb"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes: ["operational_kb_pg:/var/lib/postgresql/data"]
+volumes:
+  operational_kb_pg:

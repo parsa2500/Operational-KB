@@ -1,0 +1,1 @@
+import {describe,expect,it} from 'vitest';import {answer} from '../src/chat.js';describe('grounding',()=>{it('abstains without evidence',async()=>{const r=await answer('پرداخت آفلاین کجاست؟',[]);expect(r.unknown).toBe(true);expect(r.citations).toEqual([])})});

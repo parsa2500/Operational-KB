@@ -1,2 +1,34 @@
-import {config} from './config.js'; import type {Evidence} from './db.js';
-export async function answer(question:string,evidence:Evidence[]){if(!evidence.length)return{answer:'اطلاعات کافی برای پاسخ مستند پیدا نکردم.',unknown:true,citations:[]};const citations=evidence.map(e=>({id:e.id,path:e.path,lineStart:e.lineStart,lineEnd:e.lineEnd,kind:e.kind}));if(!config.LLM_BASE_URL||!config.LLM_API_KEY||!config.LLM_MODEL)return{answer:null,unknown:false,mode:'evidence-only',evidence,citations};const packet=evidence.map(e=>`[${e.id}] ${e.path}:${e.lineStart}-${e.lineEnd}\n${e.content}`).join('\n\n');const r=await fetch(`${config.LLM_BASE_URL.replace(/\/$/,'')}/chat/completions`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${config.LLM_API_KEY}`},body:JSON.stringify({model:config.LLM_MODEL,temperature:0,messages:[{role:'system',content:'Answer operational product questions in the user language with concise numbered steps. Cite a supplied evidence ID for every material step. Never invent UI paths, permissions, states or effects. State unknowns explicitly.'},{role:'user',content:`Question: ${question}\n\nEvidence:\n${packet}`} ]})});if(!r.ok)throw new Error(`LLM failed: ${r.status}`);const j=await r.json() as {choices?:Array<{message?:{content?:string}}>};return{answer:j.choices?.[0]?.message?.content??'پاسخی تولید نشد.',unknown:false,citations}}
+import { config, llmConfigured } from './config.js';
+import type { Evidence } from './db.js';
+
+export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+const citationOf = (e: Evidence) => ({ id: e.id, path: e.path, lineStart: e.lineStart, lineEnd: e.lineEnd, kind: e.kind });
+
+export async function answer(question: string, evidence: Evidence[], history: ChatMessage[] = []) {
+  if (!evidence.length) return { answer: 'اطلاعات کافی برای پاسخ مستند پیدا نکردم. سؤال را با نام صفحه، قابلیت یا عملیات دقیق‌تر بپرس.', unknown: true, mode: 'abstain', citations: [] };
+  if (!llmConfigured) return { answer: null, unknown: false, mode: 'evidence-only', evidence, citations: evidence.map(citationOf) };
+
+  const labels = new Map(evidence.map((item, index) => [`E${index + 1}`, item]));
+  const packet = [...labels].map(([label, item]) => `[${label}] ${item.path}:${item.lineStart}-${item.lineEnd} (${item.kind})\n${item.content}`).join('\n\n');
+  const safeHistory = history.slice(-6).map((message) => ({ ...message, content: message.content.replace(/\[E\d+\]/g, '') }));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.LLM_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${config.LLM_BASE_URL!.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST', signal: controller.signal,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.LLM_API_KEY}` },
+      body: JSON.stringify({ model: config.LLM_MODEL, temperature: 0, max_tokens: 900, messages: [
+        { role: 'system', content: 'You are an operational assistant grounded only in supplied project evidence. Answer in the user language. Give a short direct answer, then numbered steps. Include access requirements and backend effect only when proven. End every factual step with one or more evidence labels like [E1]. Evidence labels from earlier turns are invalid. Never cite an unavailable label, never invent UI labels, permissions, states, or effects. If evidence is insufficient, clearly say what is unknown.' },
+        ...safeHistory,
+        { role: 'user', content: `Question: ${question}\n\nProject evidence:\n${packet}` },
+      ] }),
+    });
+    if (!response.ok) throw new Error(`LLM request failed with ${response.status}`);
+    const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = json.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error('LLM returned an empty answer');
+    const used = [...new Set([...text.matchAll(/\[(E\d+)\]/g)].map((match) => match[1]))].filter((label) => labels.has(label));
+    if (!used.length) return { answer: 'مدرک کافی پیدا شد، اما پاسخ تولیدشده citation معتبر نداشت؛ برای جلوگیری از حدس نمایش داده نشد.', unknown: true, mode: 'citation-rejected', citations: [] };
+    return { answer: text, unknown: false, mode: 'grounded', citations: used.map((label) => citationOf(labels.get(label)!)) };
+  } finally { clearTimeout(timer); }
+}

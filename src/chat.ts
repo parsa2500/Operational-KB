@@ -10,6 +10,7 @@ export async function answer(question: string, evidence: Evidence[], history: Ch
 
   const labels = new Map(evidence.map((item, index) => [`E${index + 1}`, item]));
   const packet = [...labels].map(([label, item]) => `[${label}] ${item.path}:${item.lineStart}-${item.lineEnd} (${item.kind})\n${item.content}`).join('\n\n');
+  const safeHistory = history.slice(-6).map((message) => ({ ...message, content: message.content.replace(/\[E\d+\]/g, '') }));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.LLM_TIMEOUT_MS);
   try {
@@ -17,8 +18,8 @@ export async function answer(question: string, evidence: Evidence[], history: Ch
       method: 'POST', signal: controller.signal,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${config.LLM_API_KEY}` },
       body: JSON.stringify({ model: config.LLM_MODEL, temperature: 0, max_tokens: 900, messages: [
-        { role: 'system', content: 'You are an operational assistant grounded only in supplied project evidence. Answer in the user language. Give a short direct answer, then numbered steps. Include access requirements and backend effect only when proven. End every factual step with one or more evidence labels like [E1]. Never cite an unavailable label, never invent UI labels, permissions, states, or effects. If evidence is insufficient, clearly say what is unknown.' },
-        ...history.slice(-6),
+        { role: 'system', content: 'You are an operational assistant grounded only in supplied project evidence. Answer in the user language. Give a short direct answer, then numbered steps. Include access requirements and backend effect only when proven. End every factual step with one or more evidence labels like [E1]. Evidence labels from earlier turns are invalid. Never cite an unavailable label, never invent UI labels, permissions, states, or effects. If evidence is insufficient, clearly say what is unknown.' },
+        ...safeHistory,
         { role: 'user', content: `Question: ${question}\n\nProject evidence:\n${packet}` },
       ] }),
     });

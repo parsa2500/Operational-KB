@@ -19,6 +19,7 @@ export const config = z.object({
   ANSWER_MAX_TOKENS: z.coerce.number().int().min(200).max(4000).default(900),
   AGENT_NAME: z.string().default('راهنمای سامانه'),
   AGENT_TONE: z.string().default('ساده، دقیق، صمیمی و مناسب کاربر نهایی'),
+  ROSLYN_TIMEOUT_MS: z.coerce.number().int().min(10000).max(600000).default(180000),
 }).parse(process.env);
 
 export const llmConfigured = Boolean(config.LLM_BASE_URL && config.LLM_API_KEY && config.LLM_MODEL);

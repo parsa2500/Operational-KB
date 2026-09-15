@@ -9,6 +9,7 @@ import { extractRoslyn } from './extractors/roslyn.js';
 const interesting = /(route|path|menu|label|button|form|nav|fetch|axios|http|controller|authorize|permission|role|service|status|state|payment|order|approve|confirm|class=|id=|display:|position:|grid|flex|پرداخت|تایید)/i;
 const heuristicKind = (p: string, l: string) => /\.(tsx|jsx|html)$/.test(p) && /(button|menu|route|path|label|form|nav|class=|id=)/i.test(l) ? 'ui' : /\.css$/.test(p) ? 'ui.style' : /(fetch|axios|httpclient|\[Http(Get|Post|Put|Delete|Patch))/i.test(l) ? 'api' : /(authorize|permission|role)/i.test(l) ? 'permission' : /(status|state|approve|confirm|تایید)/i.test(l) ? 'state' : /\.(md|html)$/.test(p) ? 'documentation' : 'code';
 const idFor = (revision: string, snapshot: string, e: ExtractedEvidence) => createHash('sha256').update(`${snapshot}:${revision}:${e.path}:${e.lineStart}:${e.kind}:${e.content}`).digest('hex');
+const stripNulls = (value: string) => value.replace(/\u0000/g, '');
 
 export async function ingest(root: string) {
   const absoluteRoot = path.resolve(root);
@@ -16,7 +17,7 @@ export async function ingest(root: string) {
   if (!files.length) throw new Error(`No supported source files found under ${absoluteRoot}`);
   const loaded: Array<{ path: string; content: string }> = [];
   const hash = createHash('sha256'); let failed = 0;
-  for (const file of files.sort()) try { const content = await readFile(path.join(absoluteRoot, file), 'utf8'); loaded.push({ path: file.replaceAll('\\','/'), content }); hash.update(file).update(content); } catch { failed++; }
+  for (const file of files.sort()) try { const content = stripNulls(await readFile(path.join(absoluteRoot, file), 'utf8')); loaded.push({ path: file.replaceAll('\\','/'), content }); hash.update(file).update(content); } catch { failed++; }
   const revision = hash.digest('hex');
   const existing = await db.query('SELECT id FROM snapshots WHERE revision=$1 AND status=$2 LIMIT 1', [revision, 'active']);
   if (existing.rows[0]) return { snapshot: existing.rows[0].id, revision, filesTotal: files.length, filesFailed: failed, unchanged: true };
@@ -32,7 +33,18 @@ export async function ingest(root: string) {
     await client.query('BEGIN');
     await client.query('INSERT INTO snapshots(id,revision,root_path,status,files_total,files_failed) VALUES($1,$2,$3,$4,$5,$6)', [snapshot, revision, absoluteRoot, 'staging', files.length, failed]);
     const seen = new Set<string>();
-    for (const evidence of semantic) { const normalized = { ...evidence, path: evidence.path.replaceAll('\\','/').replace(/^\.\//,'') }; const id = idFor(revision, snapshot, normalized); if (seen.has(id)) continue; seen.add(id); await client.query('INSERT INTO evidence VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING', [id,snapshot,revision,normalized.path,normalized.lineStart,normalized.lineEnd,normalized.kind,normalized.title,normalized.content,{ ...normalized.metadata, analyzerWarning: warnings.length > 0 }]); }
+    for (const evidence of semantic) {
+      const normalized = {
+        ...evidence,
+        path: stripNulls(evidence.path.replaceAll('\\','/').replace(/^\.\//,'')),
+        title: stripNulls(evidence.title),
+        content: stripNulls(evidence.content),
+      };
+      const id = idFor(revision, snapshot, normalized);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      await client.query('INSERT INTO evidence VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING', [id,snapshot,revision,normalized.path,normalized.lineStart,normalized.lineEnd,normalized.kind,normalized.title,normalized.content,{ ...normalized.metadata, analyzerWarning: warnings.length > 0 }]);
+    }
     await client.query("UPDATE snapshots SET status='staging' WHERE status='active'"); await client.query("UPDATE snapshots SET status='active' WHERE id=$1", [snapshot]); await client.query('COMMIT');
     return { snapshot, revision, filesTotal: files.length, filesFailed: failed, semanticRecords: seen.size, warnings };
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }

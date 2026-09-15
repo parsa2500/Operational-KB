@@ -35,19 +35,16 @@ static class Program
     static void RegisterMsBuild()
     {
         if (MSBuildLocator.IsRegistered) return;
-        try { MSBuildLocator.RegisterDefaults(); return; }
-        catch (InvalidOperationException) { }
         var roots = new[] {
-            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
-            Environment.GetEnvironmentVariable("DOTNET_ROOT(x86)"),
+            Environment.GetEnvironmentVariable("DOTNET_ROOT"), Environment.GetEnvironmentVariable("DOTNET_ROOT(x86)"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet")
         }.Where(x => !string.IsNullOrWhiteSpace(x)).Select(Path.GetFullPath).Distinct();
         var sdk = roots.SelectMany(root => Directory.Exists(Path.Combine(root, "sdk")) ? Directory.EnumerateDirectories(Path.Combine(root, "sdk")) : Enumerable.Empty<string>())
             .Where(dir => File.Exists(Path.Combine(dir, "MSBuild.dll")))
             .OrderByDescending(dir => dir, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-        if (sdk is null) throw new InvalidOperationException("No MSBuild SDK was found. Install the .NET SDK and ensure DOTNET_ROOT or Program Files\\dotnet is available.");
-        MSBuildLocator.RegisterMSBuildPath(sdk);
+        if (sdk is not null) { MSBuildLocator.RegisterMSBuildPath(sdk); return; }
+        MSBuildLocator.RegisterDefaults();
     }
 
     static string? FindEntryPoint(string root)
@@ -79,7 +76,6 @@ static class Program
 
     static async Task AnalyzeDocument(SyntaxTree tree, SemanticModel model, string file, string root, string projectName)
     {
-        _ = await tree.GetTextAsync();
         foreach (var node in tree.GetRoot().DescendantNodes())
         {
             string? kind = null; string? title = null;

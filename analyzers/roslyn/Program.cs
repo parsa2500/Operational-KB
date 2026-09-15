@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -36,9 +37,9 @@ static class Program
             else if (node is ClassDeclarationSyntax cls)
             { kind = "symbol.class"; title = model.GetDeclaredSymbol(cls)?.ToDisplayString() ?? cls.Identifier.Text; }
             else if (node is AttributeSyntax attr && attr.Name.ToString().Contains("Authorize", StringComparison.OrdinalIgnoreCase))
-            { kind = "permission"; title = "Authorization: " + attr.ToString(); }
+            { kind = "permission"; title = "Authorization: " + attr; }
             else if (node is AttributeSyntax http && Regex.IsMatch(http.Name.ToString(), "Http(Get|Post|Put|Delete|Patch)|Route", RegexOptions.IgnoreCase))
-            { kind = "api.endpoint"; title = "Endpoint: " + http.ToString(); }
+            { kind = "api.endpoint"; title = "Endpoint: " + http; }
             else if (node is InvocationExpressionSyntax invocation && Regex.IsMatch(invocation.Expression.ToString(), "(Service|Repository|Client)\\.", RegexOptions.IgnoreCase))
             { kind = "service.call"; title = "Call: " + invocation.Expression; }
             else if (node is EnumMemberDeclarationSyntax member && Regex.IsMatch(member.Identifier.Text, "status|state|pending|approve|confirm|payment|order", RegexOptions.IgnoreCase))
